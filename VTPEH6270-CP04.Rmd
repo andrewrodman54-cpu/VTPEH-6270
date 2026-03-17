@@ -1,0 +1,344 @@
+---
+title: "VTPEH6270-CP04"
+author: "Andrew Rodman"
+date: "2026-03-06"
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# 1. Introduction
+
+## 1.1 Packages 
+
+```{r, warning=FALSE, message=FALSE}
+library(dplyr)
+library(ggplot2)
+
+```
+
+## 1.2 Data Cleaning, Merging and Deriving
+
+```{r, warning=FALSE}
+setwd("C:/Users/andre/OneDrive/Documents/VTPEH6270/")
+fludata = read.csv("Data/Influenza_Laboratory-Confirmed_Cases_by_County__Beginning_2009-10_Season_20260202.csv")
+svi = read.csv("Data/SVI_2016_US_county.csv")
+
+flu_svi = merge(fludata, svi, by= "FIPS", all.x = T)
+flu_svi$Count <- as.numeric(flu_svi$Count)
+flu_svi$Week.Ending.Date <- as.Date(flu_svi$Week.Ending.Date, format = "%m/%d/%Y")
+flu_svi$Season_Year <- as.numeric(substr(flu_svi$Season, 6, 9))
+flu_svi = flu_svi[, c("Season_Year",
+                      "Region",
+                      "County",
+                      "Week.Ending.Date",
+                      "Disease",
+                      "Count",
+                      "E_TOTPOP",
+                      "EP_POV",
+                      "E_PCI",
+                      "EP_UNEMP",
+                      "FIPS")]
+flu_svi <- flu_svi %>%
+  rename(Total_Pop = E_TOTPOP,
+         Poverty_Rate = EP_POV,
+         Income_Per_Capita = E_PCI,
+         Date = Week.Ending.Date,
+         Unemployment_Rate = EP_UNEMP)
+
+flu_svi_year <- flu_svi %>%
+group_by(Season_Year, County) %>%
+summarise(
+Region = first(Region),
+Total_Count = sum(Count),
+Total_Pop = first(Total_Pop),
+Poverty_Rate = first(Poverty_Rate),
+Income_Per_Capita = first(Income_Per_Capita),
+Unemployment_Rate = first(Unemployment_Rate),
+FIPS = first(FIPS),
+.groups = "drop"
+)
+flu_svi_year <- flu_svi_year %>%
+mutate(Incidence_Rate = (Total_Count / Total_Pop) * 100000)
+
+```
+
+# 2. Objective and Approach
+
+## 2.1 Specific Objective
+
+Do annual influenza incidence rates differ in New York State counties by income?
+
+## 2.2 Data Description
+
+```{r}
+
+variable_table <- data.frame(
+  Name = c("County", "Income_Per_Capita", "Incidence_Rate", "Season_Year"),
+  Type = c("Categorical", "Continuous", "Continuous", "Discrete"),
+  Class = c("Character", "Numeric", "Numeric", "Date")
+)
+
+knitr::kable(variable_table, caption = "Variable Types and Classes")
+
+```
+
+## 2.3 Data Visualization
+
+```{r, warning=FALSE, message=FALSE}
+ggplot(flu_svi_year, aes(x = Income_Per_Capita, y = Incidence_Rate)) +
+  geom_point() +
+  geom_smooth(method = "lm", se = FALSE) +
+  labs(
+    title = "Association Between Income Per Capita and Incidence Rate",
+    x = "Income Per Capita",
+    y = "Incidence Rate"
+  ) +
+  theme_minimal()
+```
+
+## 2.4 Description of Plausible Relationships
+
+Incidence Rate and Income Per Capita seem to have a slightly negative linear
+relationship.
+
+## 2.5 Parameters of Interest 
+
+```{r}
+parameters <- data.frame(
+  Parameter = c("Intercept", "Slope (Effect Size)", "Error / Noise"),
+  Symbol = c("a", "b", "epsilon"),
+  Description = c(
+    "Expected Incidence Rate when Income Per Capita = 0",
+    "Change in Incidence Rate for a one-unit increase in Income Per Capita",
+    "Random variation in Incidence Rate not explained by Income Per Capita"))
+
+knitr::kable(parameters, caption = "Parameters")
+
+model <- lm(Incidence_Rate ~ Income_Per_Capita, data = flu_svi_year)
+mean_income <- mean(flu_svi_year$Income_Per_Capita, na.rm = TRUE)
+sd_income <- sd(flu_svi_year$Income_Per_Capita, na.rm = TRUE)
+```
+a = 956
+b = -0.011
+mean_income = 28987.5
+sd_income = 7366
+
+# 3. Simulation
+
+## 3.1 Simulation Basis 
+
+```{r}
+
+set.seed(123)
+n <- 200
+Income_Sim <- rnorm(n, mean = 28987.5, sd = 7366)
+a <- 956 
+b <- -0.011
+epsilon <- rnorm(n, mean = 0, sd = 50)
+Incidence_Sim <- a + b * Income_Sim + epsilon
+sim_data <- data.frame(
+  Income_Sim = Income_Sim,
+  Incidence_Sim = Incidence_Sim
+)
+
+```
+## 3.2 Simulation Output
+
+```{r}
+sim_data$Income_Quartile <- cut(
+  sim_data$Income_Sim,
+  breaks = quantile(sim_data$Income_Sim, probs = seq(0, 1, 0.25)),
+  include.lowest = TRUE,
+  labels = c("Q1", "Q2", "Q3", "Q4")
+)
+summary_stats <- sim_data %>%
+  group_by(Income_Quartile) %>%
+  summarise(
+    n = n(),
+    Mean = mean(Incidence_Sim),
+    Median = median(Incidence_Sim),
+    SD = sd(Incidence_Sim),
+    Min = min(Incidence_Sim),
+    Max = max(Incidence_Sim)
+  )
+
+knitr::kable(summary_stats, caption = "Quartile Summary Statistics")
+```
+
+## 3.3 Simulation Function
+```{r}
+run_simulation <- function(
+  effect_size = -0.011,
+  noise       = 1.0,
+  n           = 1000,
+  a           = 956,
+  mean_income = 28987.5,
+  sd_income   = 7366,
+  seed        = 42
+) {
+  set.seed(seed)
+  sim_data <- data.frame(
+    Income_Sim = rnorm(n, mean = mean_income, sd = sd_income)
+  )
+  sim_data$Incidence_Sim <- a + effect_size * sim_data$Income_Sim + rnorm(n, mean = 0, sd = noise)
+  sim_data$Income_Quartile <- cut(
+    sim_data$Income_Sim,
+    breaks = quantile(sim_data$Income_Sim, probs = seq(0, 1, 0.25)),
+    include.lowest = TRUE,
+    labels = c("Q1", "Q2", "Q3", "Q4")
+  )
+  summary_stats <- sim_data %>%
+    group_by(Income_Quartile) %>%
+    summarise(
+      n                = n(),
+      Mean_Incidence   = mean(Incidence_Sim),
+      Median_Incidence = median(Incidence_Sim),
+      SD_Incidence     = sd(Incidence_Sim),
+      Min_Incidence    = min(Incidence_Sim),
+      Max_Incidence    = max(Incidence_Sim),
+      .groups = "drop"
+    )
+  list(
+    params        = list(effect_size = effect_size,
+                         noise       = noise,
+                         n           = n),
+    sim_data      = sim_data,
+    summary_stats = summary_stats,
+    table         = knitr::kable(summary_stats, caption = "Quartile Summary Statistics")
+  )
+}
+
+```
+## 3.4 Simulation Automation
+
+```{r}
+effect_sizes <- c(-0.001, -0.003, -0.005, -0.008, -0.011,
+                  -0.015, -0.020, -0.030, -0.050, -0.080)
+
+sample_sizes <- c(50, 100, 250, 500, 750, 1000, 2500, 5000, 10000, 50000)
+
+noise_levels <- c(10, 50, 150)
+
+param_grid <- expand.grid(
+  effect_size = effect_sizes,
+  n           = sample_sizes,
+  noise       = noise_levels
+)
+
+
+simulation_results <- vector("list", nrow(param_grid))
+
+for (i in seq_len(nrow(param_grid))) {
+  simulation_results[[i]] <- run_simulation(
+    effect_size = param_grid$effect_size[i],
+    noise       = param_grid$noise[i],
+    n           = param_grid$n[i],
+    seed        = i
+  )
+}
+
+names(simulation_results) <- paste0(
+  "es=", param_grid$effect_size,
+  "_n=", param_grid$n,
+  "_noise=", param_grid$noise
+)
+
+all_summaries <- bind_rows(
+  lapply(simulation_results, function(x) {
+    x$summary_stats %>%
+      rename(n_quartile = n) %>%
+      mutate(
+        effect_size = x$params$effect_size,
+        noise       = x$params$noise,
+        n           = x$params$sample_size
+      )
+  })
+)
+
+cat("Total simulation runs:",nrow(param_grid),"\n")
+```
+# 4. Visualization
+
+```{r}
+slope_summary <- bind_rows(
+  lapply(simulation_results, function(x) {
+    if (is.null(x) || is.null(x$sim_data)) return(NULL)
+    
+    fit <- lm(Incidence_Sim ~ Income_Sim, data = x$sim_data)
+    data.frame(
+      effect_size = x$params$effect_size,
+      sample_size = x$params$n,
+      noise       = paste0("Noise = ", x$params$noise),
+      est_slope   = coef(fit)[["Income_Sim"]]
+    )
+  })
+)
+
+slope_summary$noise <- factor(slope_summary$noise,
+  levels = c("Noise = 10", "Noise = 50", "Noise = 150"))
+
+ggplot(slope_summary,
+       aes(x = sample_size, y = est_slope, colour = est_slope)) +
+  geom_point(size = 2, alpha = 0.85) +
+  geom_line(alpha = 0.4) +
+  geom_hline(yintercept = as.numeric(as.character(
+    unique(slope_summary$effect_size))),
+    linetype = "dashed", colour = "grey60", linewidth = 0.3) +
+  facet_grid(noise ~ effect_size) +
+  scale_x_log10(
+    breaks = c(50, 500, 5000, 50000),
+    labels = c("50", "500", "5k", "50k")
+  ) +
+  scale_colour_viridis_c(option = "plasma", direction = -1,
+                         name = "Estimated\nSlope") +
+  labs(
+    title    = "Estimated Slope by Sample Size, Effect Size and Noise",
+    subtitle = "Dashed line = true effect size · x-axis log scaled · rows = noise level · columns = effect size",
+    x        = "Sample Size (n, log scale)",
+    y        = "Estimated Slope"
+  ) +
+  theme_minimal(base_size = 9) +
+  theme(
+    strip.text       = element_text(face = "bold", size = 7),
+    plot.title       = element_text(face = "bold"),
+    panel.grid.minor = element_blank(),
+    axis.text.x      = element_text(angle = 45, hjust = 1, size = 7),
+    legend.position  = "right"
+  )
+```
+
+# 5. Interpretation
+
+These simulations showcase that the effect is consistently recovered across parameters,
+meaning that the estimated slope is always negative, consistent with our original data.
+The direction never reverses. Noise also has little influence, as all 3 noise distributions, 
+look close. The quartile gradient is also real and detectable, supporting the association between income, 
+and influenza incidence. 
+
+# 6. AI Use Disclosure Statement
+
+As part of this assignment, please indicate whether you used any AI-based tools (e.g., ChatGPT, Claude,
+Copilot, Gemini, etc.). Indicate:
+• Did you use AI? Yes
+
+
+• If yes: Write a short disclosure statement (2–3 sentences) describing:
+• Which tool(s) you used.
+Claude and ChatGPT
+
+• How you used it (e.g., to help decide on an analysis approach, to generate a first draft of code, to
+improve or debug code you had written yourself, etc.).
+Example: “This document was generated using Claude to generate original code, which was then reviewed
+and adjusted” or “This document was generate using ChatGPT to assist with debugging of code generated
+by the author”.
+Please keep your statement brief and honest. The goal is transparency, not detail: we do not need exact
+prompts or transcripts, just a clear sense of how AI supported this work
+
+This document was generated using Claude and ChatGPT to formulate a simulation, and produce
+graphs and the multi-panel grid. 
+
