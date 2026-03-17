@@ -1,0 +1,219 @@
+---
+title: "VTPEH-CP3"
+author: "Andrew Rodman"
+date: "2026-02-20"
+output:
+  pdf_document: default
+  html_document: default
+bibliography: references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning=FALSE, message = FALSE)
+library(tidyverse)
+```
+
+```{r}
+setwd("C:/Users/andre/OneDrive/Documents/VTPEH6270/")
+fludata = read.csv("Data/Influenza_Laboratory-Confirmed_Cases_by_County__Beginning_2009-10_Season_20260202.csv")
+svi = read.csv("Data/SVI_2016_US_county.csv")
+
+flu_svi = merge(fludata, svi, by= "FIPS", all.x = T)
+flu_svi$Count <- as.numeric(flu_svi$Count)
+flu_svi$Week.Ending.Date <- as.Date(flu_svi$Week.Ending.Date, format = "%m/%d/%Y")
+flu_svi$Season_Year <- as.numeric(substr(flu_svi$Season, 6, 9))
+flu_svi = flu_svi[, c("Season_Year",
+                      "Region",
+                      "County",
+                      "Week.Ending.Date",
+                      "Disease",
+                      "Count",
+                      "E_TOTPOP",
+                      "EP_POV",
+                      "E_PCI",
+                      "EP_UNEMP",
+                      "FIPS")]
+flu_svi <- flu_svi %>%
+  rename(Total_Pop = E_TOTPOP,
+         Poverty_Rate = EP_POV,
+         Income_Per_Capita = E_PCI,
+         Date = Week.Ending.Date,
+         Unemployment_Rate = EP_UNEMP)
+
+
+```
+
+## 2. Research Question and Background
+## 2.1. Research Question:
+Are annual influenza incidence rates higher in New York State counties with elevated poverty rates?
+
+## 2.2. Scientific Plausibility and Context:
+Influenza is a airborne disease that spreads from human to human, and poverty influences the effects of crowded living conditions [@chandrasekhar2017social]. Poverty can also further increase neighborhood based disparities in regards to Socioeconomic status, increasing hospitalizations for the flu [@schnake2025neighborhood]. It is also known that populations with greater poverty rates, will have less educational knowledge on the flu vaccine and flu itself [@hadler2016influenza]. 
+
+
+# 3.Data Preparation
+## 3.1. Derived Variables
+```{r}
+library(dplyr)
+
+flu_svi_year <- flu_svi %>%
+  group_by(Season_Year, County) %>%
+  summarise(
+    Region = first(Region),
+    Total_Count = sum(Count),
+    Total_Pop = first(Total_Pop),
+    Poverty_Rate = first(Poverty_Rate),
+    Income_Per_Capita = first(Income_Per_Capita),
+    Unemployment_Rate = first(Unemployment_Rate),
+    FIPS = first(FIPS),
+    .groups = "drop"
+  )
+
+flu_svi_year <- flu_svi_year %>%
+  mutate(Incidence_Rate = (Total_Count / Total_Pop) * 100000)
+
+```
+I combined the weekly counts into years, and added derived a new variable, Incidence_Rate, which is per 100,000 people.
+
+## 3.2. Categorization and Discretization
+```{r}
+flu_svi_year <- flu_svi_year %>%
+  mutate(Poverty_Level = case_when(
+    Poverty_Rate < 10 ~ "Low",
+    Poverty_Rate >= 10 & Poverty_Rate <= 20 ~ "Medium",
+    Poverty_Rate > 20 ~ "High"
+  ),
+  Poverty_Level = factor(Poverty_Level, levels = c("Low", "Medium", "High")))
+```
+I categorized the poverty rates of counties into 3 levels, Low being <10%, Medium being 10-20%, and High being >20%.
+
+# 4. Grouped Summary Statistics
+
+## 4.1. Stratified Analysis
+
+```{r}
+library(kableExtra)
+
+flu_svi_year %>%
+  filter(!is.na(Poverty_Level), !is.na(Incidence_Rate)) %>%
+  group_by(Poverty_Level) %>%
+  summarise(
+    N = n(),
+    Mean = round(mean(Incidence_Rate), 2),
+    SD = round(sd(Incidence_Rate), 2),
+    Median = round(median(Incidence_Rate), 2),
+    Q1 = round(quantile(Incidence_Rate, 0.25), 2),
+    Q3 = round(quantile(Incidence_Rate, 0.75), 2),
+    Min = round(min(Incidence_Rate), 2),
+    Max = round(max(Incidence_Rate), 2),
+    .groups = "drop"
+  ) %>%
+  kable(
+    caption = "Table 1. Descriptive Statistics of Flu Incidence Rate Stratified by Poverty Level",
+    col.names = c("Poverty Level", "N", "Mean", "SD", "Median", "Q1", "Q3", "Min", "Max"),
+    booktabs = TRUE,
+    align = "lccccccc"
+  ) %>%
+  kable_styling(
+    latex_options = c("scale_down", "hold_position"),
+    font_size = 9,
+    full_width = FALSE
+  ) %>%
+  row_spec(0, bold = TRUE)
+```
+## 4.2 Interpretation
+
+These statistics suggest that their may be more that comes into play then just overall poverty rate, and other socioeconomic factors may influence the rates differently.
+
+# 5. Comparative Visualizations
+
+## 5.1. Association Visualization
+
+```{r}
+library(ggplot2)
+
+ggplot(flu_svi_year, aes(x = Poverty_Level, y = Incidence_Rate, fill = Poverty_Level)) +
+  geom_boxplot(outlier.shape = 21, outlier.size = 2) +
+  scale_fill_manual(values = c("Low" = "#2ecc71", "Medium" = "#f39c12", "High" = "#e74c3c")) +
+  labs(title = "Distribution of Flu Incidence Rate\nby Poverty Level",
+       x = "Poverty Level", y = "Incidence Rate (per 100,000)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+```
+This boxplot reveals that counties classified in the medium poverty level seemingly have higher median flu incidence rates. Contrary to the scientific levels found in literature. This could mean that the relationship is either non-linear, or other factors may come into play.
+
+```{r}
+ggplot(flu_svi_year, aes(x = Poverty_Rate, y = Incidence_Rate, color = Poverty_Level)) +
+  geom_point(alpha = 0.4, size = 1.5) +
+  geom_smooth(method = "lm", se = TRUE, color = "black", linetype = "dashed") +
+  scale_color_manual(values = c("Low" = "#2ecc71", "Medium" = "#f39c12", "High" = "#e74c3c")) +
+  labs(title = "Flu Incidence Rate vs Poverty Rate",
+       x = "Poverty Rate (%)", y = "Incidence Rate (per 100,000)",
+       color = "Poverty Level") +
+  theme_minimal()
+```
+
+The Scatter plot showcases an idea that since most of the counties fall in the medium poverty range, the sample size of the groups may be taken into account.
+
+```{r}
+ggplot(flu_svi_year, aes(x = Poverty_Level, y = Incidence_Rate, fill = Poverty_Level)) +
+  geom_violin(trim = FALSE, alpha = 0.7) +
+  geom_boxplot(width = 0.1, fill = "white", outlier.shape = NA) +
+  scale_fill_manual(values = c("Low" = "#2ecc71", "Medium" = "#f39c12", "High" = "#e74c3c")) +
+  labs(title = "Flu Incidence Rate Distribution\nby Poverty Level",
+       x = "Poverty Level", y = "Incidence Rate (per 100,000)") +
+  theme_minimal() +
+  theme(legend.position = "none")
+
+```
+The violin plot showcases the pattern that overall poverty level may not play a factor in NY counties, with potential for other unknown reasons for high flu rates regardless of poverty level.
+
+## 5.2 Visuals for publication
+
+```{r}
+ggplot(flu_svi_year, aes(x = Poverty_Level, y = Incidence_Rate, fill = Poverty_Level)) +
+  geom_boxplot(outlier.shape = 21, outlier.size = 1.5, linewidth = 0.4) +
+  scale_fill_brewer(palette = "RdYlGn", direction = -1) +
+  labs(
+    title = "Flu Incidence Rate by Poverty Level",
+    x = "Poverty Level",
+    y = "Incidence Rate (per 100,000 population)",
+    fill = "Poverty Level",
+    caption = "Note: Data aggregated by county and season year. Poverty thresholds: Low <10%, Medium 10–20%, High >20%."
+  ) +
+  theme_classic() +
+  theme(
+    plot.title = element_text(size = 12, face = "bold", hjust = 0),
+    axis.title = element_text(size = 11),
+    axis.text = element_text(size = 10),
+    legend.title = element_text(size = 11, face = "bold"),
+    legend.text = element_text(size = 10),
+    plot.caption = element_text(size = 8, hjust = 0, color = "grey40"),
+    panel.grid.major.y = element_line(color = "grey90", linewidth = 0.3),
+    panel.grid.major.x = element_blank(),
+    legend.position = "right",
+    legend.key.size = unit(0.5, "cm"),
+    plot.margin = margin(10, 10, 10, 10, "mm"))
+
+ggsave("NatureGraph.pdf", device = "pdf")
+```
+
+# 6. AI Use Disclosure Statement
+As part of this assignment, please indicate whether you used any AI-based tools (e.g., ChatGPT, Claude,
+Copilot, Gemini, etc.). Indicate:
+• Did you use AI?
+Yes
+
+• If yes: Write a short disclosure statement (2–3 sentences) describing:
+• Which tool(s) you used.
+
+Claude
+
+• How you used it (e.g., to help decide on an analysis approach, to generate a first draft of code, to
+improve or debug code you had written yourself, etc.).
+
+Claude was utilized to build usable graphs and tables, and to categorize data into meaningful categories to be used in said tables and graphs. 
+
+# References 
+
+

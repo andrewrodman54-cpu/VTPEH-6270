@@ -1,0 +1,152 @@
+---
+title: "VTPEH6270 Checkpoint 2"
+author: "Andrew Rodman"
+date: "2026-02-03"
+output:
+  pdf_document: default
+  html_document: default
+
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+## 3. Rmarkdown Report Outline
+
+## 3.1. Background: What is the motivation behind your interest in this data set, or what drove the project question?
+
+I am interested in looking at the differences in rates of Influenza A and B and the trends of which a counties social economic status may come into play effecting the rates of Flu. This Year's flu season has been portrayed as worse than normal in the media, Is their evidence of more cases than normal?
+
+## Project Question
+
+In what ways do social factors effect a populations potential for higher rates of flu?
+
+## Data set Overview
+
+This data set is from the NYSDOH, including the weekly counts of the influenza virus across NY state. Flu counts are split up into the counties in which the patients have flu cases, and the time period is counted weekly, from 2009 to present. The CDC SVI data was used to merge the data to get an outlook on county's populations and socioeconomic variables. This data was from 2016 and includes data from the U.S Census Bureau.
+
+https://health.data.ny.gov/Health/Influenza-Laboratory-Confirmed-Cases-by-County-Beg/jr8b-6gh6/about_data
+
+https://hdpulse.nimhd.nih.gov/data-portal/social/table?socialtopic=070&socialtopic_options=social_6&demo=00102&demo_options=pop_12&race=00&race_options=raceall_1&sex=0&sex_options=sexboth_1&age=999&age_options=ageNA_1&statefips=36&statefips_options=area_states
+
+## 3.2 Data Set Exploration
+
+### Import the data set as a data frame
+
+```{r}
+setwd("C:/Users/andre/OneDrive/Documents/VTPEH6270/")
+fludata = read.csv("Data/Influenza_Laboratory-Confirmed_Cases_by_County__Beginning_2009-10_Season_20260202.csv")
+svi = read.csv("Data/SVI_2016_US_county.csv")
+
+flu_svi = merge(fludata, svi, by= "FIPS", all.x = T)
+
+
+```
+
+## 3.2.1 Variable Overview
+
+```{r}
+
+flu_svi$Count <- as.numeric(flu_svi$Count)
+flu_svi$Week.Ending.Date <- as.Date(flu_svi$Week.Ending.Date, format = "%m/%d/%Y")
+flu_svi$Season_Year <- as.numeric(substr(flu_svi$Season, 6, 9))
+flu_svi = flu_svi[, c("Season_Year",
+                      "Region",
+                      "County",
+                      "Week.Ending.Date",
+                      "Disease",
+                      "Count",
+                      "E_TOTPOP",
+                      "EP_POV",
+                      "E_PCI",
+                      "EP_UNEMP",
+                      "FIPS")]
+
+library(dplyr)
+flu_svi <- flu_svi %>%
+  rename(Total_Pop = E_TOTPOP,
+         Poverty_Rate = EP_POV,
+         Income_Per_Capita = E_PCI,
+         Date = Week.Ending.Date,
+         Unemployment_Rate = EP_UNEMP)
+
+Variables <- c("Season_Year", "Region", "County", "Date", "Disease", "Count", "Total_Pop", "Poverty_Rate", "Income_Per_Capita", "Unemployment_Rate")
+Type <- c("Discrete", "Categorical", "Categorical", "Continuous", "Categorical", "Discrete", "Discrete", "Continuous", "Continuous", "Continuous")
+Class <- c("Numeric", "Character", "Character", "Date", "Character", "Numeric", "Numeric", "Numeric", "Numeric", "Numeric")
+
+variable_table <- data.frame(Variables, Type, Class)
+knitr::kable(variable_table, caption = "Variable Types and Classes")
+
+```
+
+## 3.2.2 Data Visualization
+
+### 3.2.2.1 Histogram
+
+```{r}
+library(ggplot2)
+
+flu_svi_county <- flu_svi %>%
+  distinct(County, .keep_all = TRUE)
+
+## My data is by weekly data of flu cases, giving multiple counts for the same county. 
+## I incorporated the code above, so the SVI data merge of each county only shows once.
+
+mean_value <- mean(flu_svi_county$Poverty_Rate, na.rm = TRUE)
+median_value <- median(flu_svi_county$Poverty_Rate, na.rm = TRUE)
+
+ggplot(flu_svi_county, aes(x=Poverty_Rate)) +
+  geom_histogram(fill = "skyblue", color = "white") +
+  labs(x="Poverty Rate (%)",
+       y="# of Counties",
+       title= "Distribution of Poverty Rates Across NY Counties",
+       caption = "Source: CDC SVI Data from 2016") +
+  geom_vline(aes(xintercept = mean_value, color = "Mean"), 
+             linewidth = 1, linetype = "dashed") +
+  geom_vline(aes(xintercept = median_value, color = "Median"), 
+             linewidth = 1, linetype = "solid") +
+  scale_color_manual(name = "Statistics", 
+                     values = c("Mean" = "red", "Median" = "blue")) +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_y_continuous(breaks = scales::pretty_breaks(n = 10)) +
+  theme_minimal()
+
+```
+### 3.2.2.2 Scatterplot
+
+```{r}
+
+ggplot(flu_svi_county, aes(x=Poverty_Rate, y=Income_Per_Capita)) +
+  geom_point() +
+  labs(x="Poverty Rate (%)",
+       y="Income per Capita ($ USD)",
+       title= "Income vs Poverty rates amongst NY counties",
+       caption = "Source: CDC SVI Data from 2016") +
+  scale_x_continuous(labels = scales::percent_format(scale = 1)) +
+  scale_y_continuous(labels = scales::dollar_format()) +
+  theme_minimal()
+
+```
+## 4. AI Use Disclosure Statement
+
+*As part of this assignment, please indicate whether you used any AI-based tools (e.g., ChatGPT, Claude, Copilot, Gemini, etc.). Indicate:*
+
+* *Did you use AI? Yes / No* Yes
+
+* *If yes: Write a short disclosure statement (2–3 sentences) describing:*
+
+* *Which tool(s) you used.* ChatGPT and Claude
+
+* *How you used it (e.g., to help decide on an analysis approach, to generate a first draft of code, to improve or debug code you had written yourself, etc.).*
+
+I used it to help me effectively merge two large data sets, and clean the graphs so they follow the correct format for the guidelines
+
+*Example: “This document was generated using Claude to generate original code, which was then reviewed and adjusted” or "This document was generated using ChatGPT to assist with debugging of code generated by the author".*
+
+*Please keep your statement brief and honest. The goal is transparency, not detail: we do not need exact prompts or transcripts, just a clear sense of how AI supported this work.*
+
+This document was generated using ChatGPT and Claude to assist with coding to merge data sets, and clean graphs.
+
+
+
